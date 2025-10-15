@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .alpmodule import MultiProtoAsConv
-from .backbone.torchvision_backbones import TVDeeplabRes101Encoder
 from util.consts import DEFAULT_FEATURE_SIZE
 from util.lora import inject_trainable_lora
 # from util.utils import load_config_from_url, plot_dinov2_fts
@@ -76,12 +75,7 @@ class FewShotSeg(nn.Module):
     def get_encoder(self):
         self.config['feature_hw'] = [DEFAULT_FEATURE_SIZE,
                                      DEFAULT_FEATURE_SIZE]  # default feature map size
-        if self.config['which_model'] == 'dlfcn_res101' or self.config['which_model'] == 'default':
-            use_coco_init = self.config['use_coco_init']
-            self.encoder = TVDeeplabRes101Encoder(use_coco_init)
-            self.config['feature_hw'] = [
-                math.ceil(self.image_size/8), math.ceil(self.image_size/8)]
-        elif self.config['which_model'] == 'dinov2_l14':
+        if self.config['which_model'] == 'dinov2_l14':
             self.encoder = torch.hub.load(
                 'facebookresearch/dinov2', 'dinov2_vitl14')
             self.config['feature_hw'] = [max(
@@ -100,6 +94,11 @@ class FewShotSeg(nn.Module):
                 'facebookresearch/dinov2', 'dinov2_vitb14')
             self.config['feature_hw'] = [max(
                 self.image_size//14, DEFAULT_FEATURE_SIZE), max(self.image_size//14, DEFAULT_FEATURE_SIZE)]
+        elif self.config['which_model'] == 'dinov2_s14':
+            self.encoder = torch.hub.load(
+                'facebookresearch/dinov2', 'dinov2_vits14')
+            self.config['feature_hw'] = [max(
+                self.image_size//14, DEFAULT_FEATURE_SIZE), max(self.image_size//14, DEFAULT_FEATURE_SIZE)]
         else:
             raise NotImplementedError(
                 f'Backbone network {self.config["which_model"]} not implemented')
@@ -111,9 +110,7 @@ class FewShotSeg(nn.Module):
                 self.encoder, r=self.config['lora'])
 
     def get_features(self, imgs_concat):
-        if self.config['which_model'] == 'dlfcn_res101':
-            img_fts = self.encoder(imgs_concat, low_level=False)
-        elif 'dino' in self.config['which_model']:
+        if 'dino' in self.config['which_model']:
             # resize imgs_concat to the closest size that is divisble by 14
             imgs_concat = F.interpolate(imgs_concat, size=(
                 self.image_size // 14 * 14, self.image_size // 14 * 14), mode='bilinear')
@@ -144,6 +141,8 @@ class FewShotSeg(nn.Module):
                 embed_dim = 768
             elif 'dinov2_l14' in self.config['which_model']:
                 embed_dim = 1024
+            elif 'dinov2_s14' in self.config['which_model']:
+                embed_dim = 384
             self.cls_unit = MultiProtoAsConv(proto_grid=[proto_hw, proto_hw], feature_hw=self.config["feature_hw"], embed_dim=embed_dim)  # when treating it as ordinary prototype
             print(f"cls unit feature hw: {self.cls_unit.feature_hw}")
         else:

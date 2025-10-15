@@ -1,60 +1,69 @@
-# DINOv2-based-Self-Supervised-Learning
+# DINOv2 Few-Shot Disaster Segmentation
 
-This work was accepted into ISBI 2024.
-[Link to our paper](https://arxiv.org/abs/2403.03273).
+This repository now focuses on adapting the ALPNet + DINOv2 few-shot pipeline to the **Exp_Disaster_Few-Shot** remote-sensing benchmark. The goal is to meta-train on diverse land-cover categories and evaluate 5-shot transfer on disaster-response segmentation tasks.
 
-## Abstract
-Deep learning models have emerged as the cornerstone of
-medical image segmentation, but their efficacy hinges on the
-availability of extensive manually labeled datasets and their
-adaptability to unforeseen categories remains a challenge.
-Few-shot segmentation (FSS) offers a promising solution by
-endowing models with the capacity to learn novel classes
-from limited labeled examples. A leading method for FSS
-is ALPNet, which compares features between the query im-
-age and the few available support segmented images. A key
-question about using ALPNet is how to design its features.
-In this work 1 , we delve into the potential of using features
-from DINOv2, which is a foundational self-supervised learn-
-ing model in computer vision. Leveraging the strengths of
-ALPNet and harnessing the feature extraction capabilities of
-DINOv2, we present a novel approach to few-shot segmen-
-tation that not only enhances performance but also paves the
-way for more robust and adaptable medical image analysis.
+## Dataset Layout
 
-## How To Run
-### 1. Data preprocessing
-Please see the notebook data/data_processing.ipynb for instructions.
-For convenience i've compiled the data processing instruction  from the instructions form the https://github.com/cheng-01037/Self-supervised-Fewshot-Medical-Image-Segmentation to a single notebook. 
-The ct dataset is available here: https://www.synapse.org/Synapse:syn3553734
+Place the dataset next to the repo so it can be reached via the relative path `../_datasets/Exp_Disaster_Few-Shot/`:
 
-The MRI dataset is availabel here: https://chaos.grand-challenge.org
-
-run `./data/CHAOST2/dcm_img_to_nii.sh` to convert dicom images to nifti files.
-
-### 2. Training and Validation
 ```
-./main.sh [MODE] [MODALITY] [LABEL_SET]
+../_datasets/Exp_Disaster_Few-Shot/
+├── trainset/
+│   ├── images/*.tif
+│   └── labels/*.tif   (IDs {0..8}, 0 = background)
+└── valset/
+    ├── images/*.tif
+    ├── labels/*.tif   (0 = background, 20 = disaster foreground)
+    └── optional *_png previews
 ```
-MODE - validation or training \
-MODALITY - ct or mri \
-LABEL_SET - 0 (kidneys), 1 (liver spleen)
 
-for example:
+The code reads GeoTIFF tiles with `rasterio`, normalises RGB channels to `[0,1]`, and remaps the active foreground to `{0,1}` inside each episode.
+
+## Quick Start
+
 ```
-./main.sh training mri 1
+# 1. Train meta-learner on the land-cover split
+./main.sh training
+
+# 2. Evaluate 5-shot transfer on the disaster validation split
+./main.sh validation
 ```
-Please refer to `main.sh` for further configurations.
 
-## Acknowledgements
-This work is largely based on [ALPNet](https://github.com/cheng-01037/Self-supervised-Fewshot-Medical-Image-Segmentation) and [DINOv2](https://github.com/facebookresearch/dinov2).
+Both commands invoke Sacred runs via `training.py` / `validation.py`. Outputs, logs, and predictions are stored under `./runs/mySSL_*` (see `config_ssl_upload.py` for the observer layout). Validation additionally saves NumPy masks to `<run>/disaster_preds/`.
 
-## Cite
-If you found this repo useful, please consider giving us a citation and a star!
+Key runtime options are exposed through Sacred:
+
+- `task.n_shots` / `task.n_queries`: support and query counts per episode (defaults: 5-shot, single query).
+- `which_aug`: augmentation recipe (`disaster_aug` blends flips, rotations, and gamma jitter).
+- `support_txt_file`: optional manifest (text or JSON) listing deterministic support tiles for validation.
+- `episode_manifest`: optional JSON produced by `tools/build_episode_manifest.py` that constrains training episodes to high-quality supports/queries.
+
+### Episode manifest workflow
+
+When thin or noisy masks cause `Failed to find prototypes` warnings during training, pre-compute curated support/query pools:
+
+```
+python3 tools/build_episode_manifest.py \
+    --dataset-root ../_datasets/Exp_Disaster_Few-Shot \
+    --split trainset \
+    --output data/train_high_quality.json
+```
+
+Pass the resulting file via Sacred (e.g. `./main.sh training episode_manifest=data/train_high_quality.json`) to force the loader to sample from tiles whose pooled foreground coverage exceeds the configured thresholds.
+
+Inspect the resolved configuration with
+
+```
+python3 training.py with print_config=True
+```
+
+## Citation
+
+If this adaptation helps your research, please cite the original DINOv2 few-shot paper:
 
 ```bibtex
 @misc{ayzenberg2024dinov2,
-      title={DINOv2 based Self Supervised Learning For Few Shot Medical Image Segmentation}, 
+      title={DINOv2 based Self Supervised Learning For Few Shot Medical Image Segmentation},
       author={Lev Ayzenberg and Raja Giryes and Hayit Greenspan},
       year={2024},
       eprint={2403.03273},

@@ -49,11 +49,21 @@ def get_sabs_augv3(input_size):
     return sabs_augv3
 
 
+def get_disaster_aug(input_size):
+    return {
+        'flip': {'v': True, 'h': True, 't': False, 'p': 0.5},
+        'reduce_2d': True,
+        'gamma_range': (0.7, 1.3),
+    }
+
+
 def get_aug(which_aug, input_size):
     if which_aug == 'sabs_aug':
         return get_sabs_aug(input_size)
     elif which_aug == 'aug_v3':
         return get_sabs_augv3(input_size)
+    elif which_aug == 'disaster_aug':
+        return get_disaster_aug(input_size)
     else:
         raise NotImplementedError
 
@@ -221,4 +231,3 @@ def transform(scan, label, nclass, geometric_tfx, intensity_tfx):
 
 def transform_wrapper(scan, label, nclass, geometric_tfx, intensity_tfx):
     return transform(scan, label, nclass, geometric_tfx, intensity_tfx)
-

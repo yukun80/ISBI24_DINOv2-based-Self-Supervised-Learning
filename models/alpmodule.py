@@ -127,11 +127,13 @@ class MultiProtoAsConv(nn.Module):
             for index in non_zero:
                 resized_proto_grid[0, 0, index[2]*val_wsize:index[2]*val_wsize + val_wsize, index[3]*val_wsize:index[3]*val_wsize + 2] = proto_grid[0, 0, index[2], index[3]]
             
-            sup_y_g = sup_y_g.view( sup_nshot, 1, -1  ).permute(1, 0, 2).view(1, -1).unsqueeze(0)
-            protos = n_sup_x[sup_y_g > thresh, :] # npro, nc
-            if 0 in protos.shape:
-                print("Failed to find prototypes")
-            
+            sup_y_g = sup_y_g.view(sup_nshot, 1, -1).permute(1, 0, 2).view(1, -1).unsqueeze(0)
+            protos = n_sup_x[sup_y_g > thresh, :]  # npro, nc
+            if protos.numel() == 0:
+                print("Failed to find prototypes; falling back to global support average.")
+                glob_proto = torch.sum(sup_x * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+                protos = glob_proto
+
             pro_n = safe_norm(protos)
             
         elif mode == 'gridconv+':
@@ -152,15 +154,14 @@ class MultiProtoAsConv(nn.Module):
             for index in non_zero:
                 resized_proto_grid[0, 0, index[2]*val_wsize:index[2]*val_wsize + val_wsize, index[3]*val_wsize:index[3]*val_wsize + 2] = proto_grid[0, 0, index[2], index[3]]
             
-            sup_y_g = sup_y_g.view( sup_nshot, 1, -1  ).permute(1, 0, 2).view(1, -1).unsqueeze(0)
+            sup_y_g = sup_y_g.view(sup_nshot, 1, -1).permute(1, 0, 2).view(1, -1).unsqueeze(0)
             protos = n_sup_x[sup_y_g > thresh, :]
-            if 0 in protos.shape:
-                print("Failed to find prototypes")
-
-            glb_proto = torch.sum(sup_x * sup_y, dim=(-1, -2)) \
-                / (sup_y.sum(dim=(-1, -2)) + 1e-5)
-
-            pro_n = safe_norm(torch.cat( [protos, glb_proto], dim = 0 ))
+            glb_proto = torch.sum(sup_x * sup_y, dim=(-1, -2)) / (sup_y.sum(dim=(-1, -2)) + 1e-5)
+            if protos.numel() == 0:
+                print("Failed to find prototypes; using global prototypes only.")
+                pro_n = safe_norm(glb_proto)
+            else:
+                pro_n = safe_norm(torch.cat([protos, glb_proto], dim=0))
         return pro_n, resized_proto_grid, non_zero
 
     def forward(self, qry, sup_x, sup_y, mode, thresh, isval = False, val_wsize = None, vis_sim = False, get_prototypes=False, **kwargs):
@@ -199,4 +200,3 @@ class MultiProtoAsConv(nn.Module):
         pred_grid, debug_assign, vis_dict = self.get_prediction_from_prototypes(pro_n, qry_n, mode, vis_sim=vis_sim) 
 
         return pred_grid, debug_assign, vis_dict, proto_grid
-

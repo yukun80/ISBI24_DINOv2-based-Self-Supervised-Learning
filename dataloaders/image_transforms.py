@@ -290,9 +290,14 @@ def elastic_transform_nd(image, alpha, sigma, random_state=None, order=1, lazy=F
                     shape=dim+(shape[0], shape[1]))
     dy = np.transpose(dy, axes=(-2, -1) + tuple(range(len(dim))))
 
-    coord = np.meshgrid(*[np.arange(shape_i) for shape_i in (shape[1], shape[0]) + dim])
-    indices = [np.reshape(e+de, (-1, 1)) for e, de in zip([coord[1], coord[0]] + coord[2:],
-                                                          [dy, dx] + [0] * len(dim))]
+    mesh_inputs = [np.arange(shape_i) for shape_i in (shape[1], shape[0]) + tuple(dim)]
+    coord = list(np.meshgrid(*mesh_inputs))
+    base_coords = [coord[1], coord[0]] + list(coord[2:])
+    offsets = [dy, dx] + [0] * len(dim)
+    indices = [
+        np.reshape(e + de, (-1, 1))
+        for e, de in zip(base_coords, offsets)
+    ]
 
     if lazy:
         return indices
@@ -358,5 +363,4 @@ class RandomFlip3D(object):
                 x = x[..., ::-1]
 
         return x
-
 

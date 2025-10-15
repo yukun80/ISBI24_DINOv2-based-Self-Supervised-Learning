@@ -16,7 +16,11 @@ try:
 
     safetensors_available = True
 except ImportError:
-    from .safe_open import safe_open
+    def safe_open(*args, **kwargs):
+        raise EnvironmentError(
+            "Reading safetensors weights requires the `safetensors` package. "
+            "Install it with `pip install safetensors` or add it to your environment."
+        )
 
     def safe_save(
         tensors: Dict[str, torch.Tensor],
@@ -24,7 +28,7 @@ except ImportError:
         metadata: Optional[Dict[str, str]] = None,
     ) -> None:
         raise EnvironmentError(
-            "Saving safetensors requires the safetensors library. Please install with pip or similar."
+            "Saving safetensors requires the `safetensors` library. Install it with pip or similar."
         )
 
     safetensors_available = False

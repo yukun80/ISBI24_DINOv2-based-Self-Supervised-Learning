@@ -15,26 +15,7 @@ from sklearn.decomposition import PCA
 import torchvision.transforms.functional as F
 
 
-def plot_connected_components(cca_output, original_image, confidences:dict=None, title="debug/connected_components.png"):
-    num_labels, labels, stats, centroids = cca_output
-    # Create an output image with random colors for each component
-    output_image = np.zeros((labels.shape[0], labels.shape[1], 3), np.uint8)
-    for label in range(1, num_labels):  # Start from 1 to skip the background
-        mask = labels == label
-        output_image[mask] = np.random.randint(0, 255, size=3)
 
-    # Plotting the original and the colored components image
-    plt.figure(figsize=(10, 5))
-    plt.subplot(121), plt.imshow(original_image), plt.title('Original Image')
-    plt.subplot(122), plt.imshow(cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)), plt.title('Connected Components')
-    if confidences is not None:
-        # Plot the axes color chart with the confidences, use the same colors as the connected components
-        plt.subplot(122)
-        scatter = plt.scatter(centroids[:, 0], centroids[:, 1], c=list(confidences.values()), cmap='jet')
-        plt.colorbar(scatter)
-
-    plt.savefig(title)
-    plt.close()
 
 
 def reverse_tensor(tensor, original_h, original_w, degrees):
@@ -140,11 +121,10 @@ def validation_single_slice(model, support_images, support_fg_mask, support_bg_m
 
     query_pred = np.array(query_pred_logits.argmax(dim=1)[0].cpu().detach())
             
-    if _config['do_cca']:
-        query_pred = cca(query_pred, query_pred_logits)
+    
     
     if _config["debug"]:
-        # plot the support images, support fg mask, query image, query pred before cca and query pred after cca
+        # visualise support/query tensors alongside raw predictions
         fig, ax = plt.subplots(3, 2, figsize=(15, 10))
         ax[0,0].imshow(support_images[0][q_part][0,0].cpu().numpy(), cmap='gray')
         ax[0,1].imshow(support_fg_mask[0][q_part][0].cpu().numpy(), cmap='gray')
@@ -156,7 +136,7 @@ def validation_single_slice(model, support_images, support_fg_mask, support_bg_m
         for axi in ax.flat:
             axi.set_xticks([])
             axi.set_yticks([])
-        fig.savefig("debug/cca_before_after.png")
+        fig.savefig("debug/disaster_debug.png")
         plt.close(fig)
     
     model.train()
@@ -461,84 +441,12 @@ def choose_threshold_kneedle(p):
     return threshold
 
     
-def plot_cca_output(cca_output):
-    for j in range(cca_output[0]):
-        if j == 0:
-            continue
-        plt.figure()
-        plt.imshow(cca_output[1] == j)
-        plt.savefig(f'debug/cca_{j}.png')
-        plt.close('all')
 
 
-def get_connected_components(query_pred_original, query_pred_logits, return_conf=False):
-    """
-    get all connected components
-    """
-    cca_output = cv2.connectedComponentsWithStats(query_pred_original.astype(np.uint8), connectivity=8) # TODO try 8
-    
-    # plot_cca_output(cca_output)    
-    
-    if return_conf:
-        # calc confidence for each connected component
-        cca_conf = {} # conf by id
-        query_probs = query_pred_logits.softmax(1)[:,1].cpu().detach().numpy()
-        for j in range(cca_output[0]):
-            if j == 0:
-                cca_conf[0] = 0 # background
-                continue
-            cca_conf[j] = ((query_probs.flatten() * (cca_output[1] == j).flatten()).sum()  / ((query_pred_original.flatten().sum() + 1e-6))) # take into account the area of the connected component
-        
-        return cca_output, cca_conf
-    
-    return cca_output, None
 
-def cca(query_pred_original, query_pred_logits, return_conf=False, return_cc=False):
-    '''
-    Performs connected component analysis on the query_pred and returns the most confident connected component
-    '''
-    # cca_output = cv2.connectedComponentsWithStats(query_pred_original.astype(np.uint8), connectivity=8) # TODO try 8
-    # # calc confidence for each connected component
-    # cca_conf = []
-    # for j in range(cca_output[0]):
-    #     if j == 0:
-    #         cca_conf.append(0) # background
-    #         continue
-    #     cca_conf.append((query_pred_logits.softmax(1)[:,1].flatten(1).cpu().detach().numpy() * (cca_output[1] == j).flatten()).sum() / ((cca_output[1] == j).flatten().sum() + 1e-6) * ((cca_output[1] == j).flatten().sum() / (query_pred_original.flatten().sum() + 1e-6))) # take into account the area of the connected component
-    cca_output, cca_conf = get_connected_components(query_pred_original, query_pred_logits, return_conf=True)
-    
-    # find the most confident connected component, find max conf and its key
-    max_conf = cca_conf[0]
-    for k,v in cca_conf.items():
-        if v > max_conf:
-            max_conf = v
-            max_key = k
-        
-    if max_conf == 0:
-        # no connected component found, use zeros
-        query_pred = np.zeros_like(query_pred_original)
-    else:
-        # zero out all other connected components
-        new_cca_output = list(cca_output)
-        new_cca_output[0] = 2  # bg + fg
-        new_cca_output[1] = np.where(cca_output[1] != max_key, 0, 1)  # binarize the max_key
-        new_cca_output[2] = cca_output[2][[0, max_key]]
-        new_cca_output[3] = cca_output[3][[0, max_key]]
-        cca_output = tuple(new_cca_output)
 
-        query_pred = (cca_output[1] == 1).astype(np.uint8)
-        # convert to binary mask
-        query_pred = (query_pred > 0).astype(np.uint8) 
-    
-    if return_cc:
-        return cca_output
-    
-    query_pred_original = query_pred_original * query_pred
-    
-    if return_conf:
-        return query_pred_original, max_conf
-    
-    return query_pred_original
+
+
 
 def set_seed(seed):
     """
@@ -649,4 +557,3 @@ class CircularList(list):
         if step is None:
             step = 1
         return range(start, stop, step)
-
