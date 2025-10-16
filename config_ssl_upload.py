@@ -82,6 +82,18 @@ def cfg():
     use_wce = True
     ttt = True
 
+    am2p_defaults = {
+        'radii': [4, 8, 16],
+        'alpha': 1.2,
+        'nmax_comp': 8,
+        'mmax_total': 64,
+        'theta_min': 8,
+        'tau_area': 9,
+        'beta': 0.3,
+        'temp': 0.07,
+        'epsilon': 1e-6,
+    }
+
     model = {
         'align': True,
         'dinov2_loss': False,
@@ -92,10 +104,9 @@ def cfg():
         'feature_hw': [input_size[0] // proto_grid_size, input_size[1] // proto_grid_size],
         'reload_model_path': reload_model_path,
         'lora': lora,
-        'use_slice_adapter': False,
-        'adapter_layers': 1,
         'debug': False,
         'use_pos_enc': False,
+        'am2p': am2p_defaults,
     }
 
     support_txt_file = None
@@ -110,6 +121,23 @@ def cfg():
     path = {
         'log_dir': './runs',
         'EXP_DISASTER_FEWSHOT': {'data_dir': "../_datasets/Exp_Disaster_Few-Shot"},
+    }
+
+    validation = {
+        'val_snapshot_path': reload_model_path,
+        'support_manifest': support_txt_file,
+        'episode_manifest': episode_manifest,
+        'config_json': '',
+        'num_workers': 0,
+        'max_iters_per_epoch': 1,
+        'pin_memory': True,
+        'output_dir_name': 'disaster_preds',
+        'output_root': '',
+        'save_numpy_preds': True,
+        'save_color_mask': True,
+        'save_overlay': True,
+        'overlay_alpha': 0.5,
+        'metrics_filename': 'metrics_report.json',
     }
 
 

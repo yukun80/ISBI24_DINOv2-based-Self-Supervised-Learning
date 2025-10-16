@@ -15,6 +15,18 @@ from sklearn.decomposition import PCA
 import torchvision.transforms.functional as F
 
 
+def deep_update_dict(target, updates):
+    """
+    Recursively update a nested dictionary in-place.
+    """
+    for key, value in (updates or {}).items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            deep_update_dict(target[key], value)
+        else:
+            target[key] = value
+    return target
+
+
 
 
 
@@ -117,7 +129,14 @@ def validation_single_slice(model, support_images, support_fg_mask, support_bg_m
     sup_bgm_part = [[shot_tensor.unsqueeze(0) for shot_tensor in support_bg_mask[0][q_part]]]
 
     with torch.no_grad():
-        query_pred_logits, _, _, assign_mats, _, _ = model( sup_img_part , sup_fgm_part, sup_bgm_part, query_images, isval = True, val_wsize = _config["val_wsize"] )
+        query_pred_logits, _, _ = model(
+            sup_img_part,
+            sup_fgm_part,
+            sup_bgm_part,
+            query_images,
+            isval=True,
+            val_wsize=_config["val_wsize"],
+        )
 
     query_pred = np.array(query_pred_logits.argmax(dim=1)[0].cpu().detach())
             

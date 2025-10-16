@@ -58,6 +58,28 @@ def _load_support_list(manifest_path: str) -> List[str]:
             data = json.load(fp)
         if isinstance(data, dict) and "support" in data:
             data = data["support"]
+        elif isinstance(data, dict) and "classes" in data:
+            collected: List[str] = []
+            seen = set()
+            for class_payload in data["classes"].values():
+                if not isinstance(class_payload, dict):
+                    continue
+                pool = class_payload.get("support") or class_payload.get("support_pool") or []
+                if not isinstance(pool, list):
+                    continue
+                for item in pool:
+                    name = None
+                    if isinstance(item, dict):
+                        name = item.get("name")
+                    elif isinstance(item, str):
+                        name = item
+                    if not name:
+                        continue
+                    name = str(name).strip()
+                    if name and name not in seen:
+                        seen.add(name)
+                        collected.append(name)
+            data = collected
         if not isinstance(data, list):
             raise ValueError(f"Unexpected payload in {manifest_path}: {type(data)}")
         return [str(item).strip() for item in data if str(item).strip()]
@@ -440,6 +462,7 @@ class ExpDisasterFewShotDataset(Dataset):
             "class_ids": [[cls_id for _ in support_images]],
             "support_images": [support_images],
             "support_mask": [support_masks],
+            "support_names": [[record.name for record in support_records]],
             "query_images": query_images,
             "query_labels": query_labels,
             "query_names": query_names,

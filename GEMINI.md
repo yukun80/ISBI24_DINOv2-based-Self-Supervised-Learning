@@ -55,6 +55,6 @@ There are no explicit contribution guidelines.
 -   `validation.py`: The main script for validating the model.
 -   `config_ssl_upload.py`: Contains the configuration for the project.
 -   `models/grid_proto_fewshot.py`: Defines the main model architecture (`FewShotSeg`).
--   `models/alpmodule.py`: Implements the `MultiProtoAsConv` module, which is the core of the few-shot segmentation model.
+-   `models/am2p.py`: Implements the AM²P prototype module used by the few-shot segmentation model.
 -   `dataloaders/`: Contains the GeoTIFF episodic loader (`exp_disaster_dataset.py`) and augmentation helpers.
 -   `util/`: Contains utility functions and metrics.

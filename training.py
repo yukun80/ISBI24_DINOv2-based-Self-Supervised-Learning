@@ -29,38 +29,33 @@ from torch import Tensor
 from typing import List, Tuple, Union, cast, Iterable, Set, Any, Callable, TypeVar
 
 """
-sh main.sh training
-sh main.sh training modelname=dinov2_s14
-
-sh main.sh training \
-    modelname=dinov2_s14 \
-    input_size="(448, 448)" \
-    proto_grid_size=12 \
-    task.n_shots=1 \
-    lora=0
-    
 python3 training.py with \
-    modelname=dinov2_s14 \
-    optim_type=sgd \
+    modelname=`dinov2_b14 \
     dataset=EXP_DISASTER_FEWSHOT \
     num_workers=8 \
     use_wce=True \
     clsname=grid_proto \
-    n_steps=100 \
-    proto_grid_size=12 \
-    max_iters_per_load=1000 \
-    save_snapshot_every=25000 \
-    lr_step_gamma=0.95 \
-    lora=2 \
-    ttt=True \
-    input_size="(448, 448)" \
-    which_aug=disaster_aug \
-    task.n_shots=1 \
+    input_size="(512, 512)" \
+    proto_grid_size=16 \
+    task.n_shots=5 \
     task.n_queries=1 \
+    batch_size=8 \
+    grad_accumulation_steps=1 \
+    n_steps=80000 \
+    epochs=1 \
+    max_iters_per_load=2000 \
+    lr=5e-5 \
+    optim.lr=5e-5 \
+    lr_milestones="[20000, 32000]" \
+    lr_step_gamma=0.5 \
+    save_snapshot_every=5000 \
+    lora=16 \
+    ttt=True \
+    precision.use_amp=False \
+    precision.dtype=fp32 \
+    precision.grad_scaler=True \
     seed=3407 \
-    precision.use_amp=True \
-    precision.dtype=fp16 \
-    precision.grad_scaler=True
+    episode_manifest=./data/trainset/manifest.json
     
 python3 training.py with \
     modelname=dinov2_s14 \
@@ -74,7 +69,7 @@ python3 training.py with \
     task.n_queries=1 \
     batch_size=1 \
     grad_accumulation_steps=8 \
-    n_steps=60000 \
+    n_steps=80000 \
     epochs=1 \
     max_iters_per_load=2000 \
     lr=5e-4 \
@@ -87,7 +82,7 @@ python3 training.py with \
     precision.use_amp=True \
     precision.dtype=fp16 \
     precision.grad_scaler=True \
-    seed=3407
+    seed=3407 \
     episode_manifest=./data/trainset/manifest.json
 """
 
@@ -236,7 +231,7 @@ def main(_run, _config, _log):
             loss = 0.0
             try:
                 with amp.autocast(device_type, dtype=autocast_dtype) if amp_enabled else nullcontext():
-                    out = model(
+                    query_pred, align_loss, _ = model(
                         support_images,
                         support_fg_mask,
                         support_bg_mask,
@@ -244,9 +239,8 @@ def main(_run, _config, _log):
                         isval=False,
                         val_wsize=None,
                     )
-                    query_pred, align_loss, _, _, _, _, _ = out
                     query_loss = criterion(query_pred.float(), query_labels.long())
-                    loss += query_loss + align_loss
+                    loss = query_loss + align_loss
             except Exception as e:
                 print(f"faulty batch detected, skip: {e}")
                 # offload cuda memory
@@ -272,20 +266,20 @@ def main(_run, _config, _log):
                 optimizer.zero_grad()
 
             losses.append(loss.item())
-            query_loss = query_loss.detach().data.cpu().numpy()
-            align_loss = align_loss.detach().data.cpu().numpy() if align_loss != 0 else 0
+            query_loss_value = query_loss.detach().cpu().item()
+            align_loss_value = align_loss.detach().cpu().item() if torch.is_tensor(align_loss) else float(align_loss)
 
-            _run.log_scalar("loss", query_loss)
-            _run.log_scalar("align_loss", align_loss)
+            _run.log_scalar("loss", query_loss_value)
+            _run.log_scalar("align_loss", align_loss_value)
 
-            log_loss["loss"] += query_loss
-            log_loss["align_loss"] += align_loss
+            log_loss["loss"] += query_loss_value
+            log_loss["align_loss"] += align_loss_value
 
             # print loss and take snapshots
             if (i_iter + 1) % _config["print_interval"] == 0:
                 writer.add_scalar("loss", loss, i_iter)
-                writer.add_scalar("query_loss", query_loss, i_iter)
-                writer.add_scalar("align_loss", align_loss, i_iter)
+                writer.add_scalar("query_loss", query_loss_value, i_iter)
+                writer.add_scalar("align_loss", align_loss_value, i_iter)
 
                 loss = log_loss["loss"] / _config["print_interval"]
                 align_loss = log_loss["align_loss"] / _config["print_interval"]

@@ -57,6 +57,33 @@ Inspect the resolved configuration with
 python3 training.py with print_config=True
 ```
 
+For validation, generate a manifest directly on `valset` (the helper now defaults to class `20` for this split):
+
+```
+python3 tools/build_episode_manifest.py \
+    --dataset-root ../_datasets/Exp_Disaster_Few-Shot \
+    --split valset \
+    --output data/valset_manifest.json
+```
+Pass the resulting file through `validation.episode_manifest=<path>` when you need deterministic episodes.
+
+## Validation & Visualization
+
+- Run end-to-end validation (Dice/IoU/Precision/Recall/F1/OA) and export masks/overlays:
+  ```
+  python3 validation.py with validation.val_snapshot_path=<path/to/snapshot.pth>
+  ```
+  The script auto-loads `config.json` from the snapshot run folder (override via `validation.config_json=<path/to/config.json>`) so backbone/LoRA settings match training. Artifacts land in the Sacred run directory under `disaster_preds/`, along with a `metrics_report.json` summary.
+  Training-only episode manifests are ignored for validation unless you explicitly set `validation.episode_manifest=<val_manifest.json>`.
+
+- Produce offline visualisations from a checkpoint without spawning a Sacred run:
+  ```
+  python3 predict.py \
+      --weights runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/snapshots/25000.pth \
+      --output-dir ./runs/predict/step_25000
+  ```
+  Additional knobs include `--support-manifest`, `--episode-manifest`, `--no-save-overlay`, `--overlay-alpha`, and `--dataset-root`.
+
 ## Citation
 
 If this adaptation helps your research, please cite the original DINOv2 few-shot paper:

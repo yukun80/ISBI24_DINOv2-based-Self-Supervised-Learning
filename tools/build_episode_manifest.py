@@ -9,6 +9,7 @@ support/query images that are less likely to yield empty prototype grids.
 
 python -m tools.build_episode_manifest --dataset-root ../_datasets/Exp_Disaster_Few-Shot --split trainset --output ./data/trainset/manifest.json
 
+python -m tools.build_episode_manifest --dataset-root ../_datasets/Exp_Disaster_Few-Shot --split valset --output ./data/valset/manifest.json
 """
 from __future__ import annotations
 
@@ -60,8 +61,8 @@ def parse_args() -> argparse.Namespace:
         "--classes",
         type=int,
         nargs="+",
-        default=list(range(1, 9)),
-        help="Class IDs to consider as foreground. Default: 1..8.",
+        help="Class IDs to consider as foreground. "
+        "Default: trainset→1..8, valset→20.",
     )
     parser.add_argument(
         "--n-shots",
@@ -144,13 +145,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_default_classes(split: str) -> List[int]:
+    split_lower = split.lower()
+    if "val" in split_lower:
+        return [20]
+    if "train" in split_lower:
+        return list(range(1, 9))
+    # Fallback: include standard land-cover ids plus disaster id
+    return list(range(1, 9)) + [20]
+
+
 def infer_kernel_size(input_size: int, backbone_stride: int, proto_grid_size: int) -> int:
     """
-    Reproduce the pooling window used in MultiProtoAsConv.
+    Reproduce the effective prototype window used by AM²P.
 
     DINO-style backbones typically yield feature maps of size
     max(input_size // stride, DEFAULT_FEATURE_SIZE). A prototype grid splits
-    the feature map evenly, so the effective pooling window is feature_hw // grid_hw.
+    the feature map evenly, so the effective window is feature_hw // grid_hw.
     """
     feature_hw = max(input_size // backbone_stride, 32)
     kernel = max(1, feature_hw // proto_grid_size)
@@ -230,8 +241,11 @@ def build_manifest(args: argparse.Namespace) -> Dict[str, object]:
     if not os.path.isdir(labels_dir):
         raise FileNotFoundError(f"Expected labels directory at {labels_dir}.")
 
+    target_classes = args.classes or resolve_default_classes(args.split)
+    target_classes = sorted(set(int(cls_id) for cls_id in target_classes))
+
     kernel_size = infer_kernel_size(args.input_size, args.backbone_stride, args.proto_grid_size)
-    per_class_scores = compute_quality_scores(labels_dir, args.classes, kernel_size)
+    per_class_scores = compute_quality_scores(labels_dir, target_classes, kernel_size)
 
     manifest: Dict[str, object] = {
         "version": 1,
@@ -246,11 +260,12 @@ def build_manifest(args: argparse.Namespace) -> Dict[str, object]:
             "min_support_patch": args.min_support_patch,
             "min_query_ratio": args.min_query_ratio,
             "min_query_patch": args.min_query_patch,
+            "classes": target_classes,
         },
         "classes": {},
     }
 
-    for cls_id in sorted(args.classes):
+    for cls_id in target_classes:
         stats = per_class_scores.get(cls_id, [])
         support_pool = filter_candidates(
             stats,
