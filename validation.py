@@ -27,11 +27,15 @@ from util.utils import deep_update_dict, set_seed
 
 """
 python3 validation.py with \
-validation.val_snapshot_path=runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/snapshots/15000.pth \
-validation.config_json=runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/config.json
+    validation.val_snapshot_path=path/to/your/snapshot.pth \
+    validation.evaluation_manifest=data/valset/manifest.json
 
-
-python3 validation.py with validation.val_snapshot_path=runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/snapshots/20000.pth
+# The script will automatically try to find config.json from the snapshot path.
+# You can also specify it manually:
+python3 validation.py with \
+    validation.val_snapshot_path=runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/snapshots/20000.pth \
+    validation.config_json=runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/config.json \
+    validation.evaluation_manifest=data/valset/manifest.json
 """
 
 
@@ -45,15 +49,6 @@ def _prepare_observer_artifacts(_run) -> None:
         _run.observers[0].save_file(source_file, f'source/{source_file}')
     shutil.rmtree(f'{_run.observers[0].basedir}/_sources')
 
-
-def _default_support_subset(dataset: ExpDisasterFewShotDataset, n_shots: int) -> List[str]:
-    selected: List[str] = []
-    for record in dataset.records.values():
-        if record.name not in selected and set(record.classes) & set(dataset.target_classes):
-            selected.append(record.name)
-        if len(selected) >= n_shots:
-            break
-    return selected[:n_shots]
 
 
 def _ensure_image_batch_dim(tensor: torch.Tensor) -> torch.Tensor:
@@ -124,68 +119,32 @@ def main(_run, _config, _log):
 
     dataset_root = os.path.expanduser(str(_config['path'][_config['dataset']]['data_dir']))
 
-    support_manifest = validation_cfg.get('support_manifest') or _config.get('support_txt_file')
-    if support_manifest:
-        support_manifest = os.path.expanduser(str(support_manifest))
-        if not os.path.isfile(support_manifest):
-            _log.warning("Support manifest '%s' not found; falling back to auto-selected supports.", support_manifest)
-            support_manifest = None
-
-    episode_manifest = validation_cfg.get('episode_manifest')
-    if episode_manifest is None and _config.get('validation', {}).get('episode_manifest', ''):
-        episode_manifest = _config['validation']['episode_manifest']
-    if episode_manifest:
-        episode_manifest = os.path.expanduser(str(episode_manifest))
-        if not os.path.isfile(episode_manifest):
-            _log.warning("Episode manifest '%s' not found; ignoring.", episode_manifest)
-            episode_manifest = None
-    # Do not reuse training episode manifests by default
-    _config['episode_manifest'] = episode_manifest
-
-    try:
-        dataset = ExpDisasterFewShotDataset(
-            root_dir=dataset_root,
-            split='valset',
-            target_classes=[20],
-            n_shots=_config['task']['n_shots'],
-            n_queries=_config['task']['n_queries'],
-            transforms=None,
-            max_iters_per_epoch=validation_cfg.get('max_iters_per_epoch', 1),
-            support_manifest=support_manifest,
-            episode_seed=_config['seed'],
-            episode_manifest=episode_manifest,
+    # Evaluation is now driven exclusively by a manifest.
+    evaluation_manifest = validation_cfg.get('evaluation_manifest')
+    if not evaluation_manifest:
+        raise ValueError(
+            "Missing 'validation.evaluation_manifest' path in configuration. "
+            "Deterministic evaluation requires a pre-generated manifest. "
+            "Please create one using 'tools/create_evaluation_manifest.py'."
         )
-    except RuntimeError as exc:
-        if episode_manifest and "No valid entries found in episode manifest" in str(exc):
-            _log.warning(
-                "Episode manifest '%s' is incompatible with validation split; retrying without it.",
-                episode_manifest,
-            )
-            episode_manifest = None
-            _config['episode_manifest'] = None
-            dataset = ExpDisasterFewShotDataset(
-                root_dir=dataset_root,
-                split='valset',
-                target_classes=[20],
-                n_shots=_config['task']['n_shots'],
-                n_queries=_config['task']['n_queries'],
-                transforms=None,
-                max_iters_per_epoch=validation_cfg.get('max_iters_per_epoch', 1),
-                support_manifest=support_manifest,
-                episode_seed=_config['seed'],
-                episode_manifest=None,
-            )
-        else:
-            raise
 
-    if not dataset.fixed_support:
-        dataset.fixed_support = _default_support_subset(dataset, _config['task']['n_shots'])
-        _log.info(f"Using default support set: {dataset.fixed_support}")
-    else:
-        _log.info(f"Loaded support set: {dataset.fixed_support}")
+    evaluation_manifest = os.path.expanduser(str(evaluation_manifest))
+    if not os.path.isfile(evaluation_manifest):
+        raise FileNotFoundError(f"Evaluation manifest '{evaluation_manifest}' not found.")
+
+    _log.info(f"Using evaluation manifest: {evaluation_manifest}")
+    dataset = ExpDisasterFewShotDataset(
+        root_dir=dataset_root,
+        split='valset',
+        target_classes=[20],  # valset is always class 20
+        n_shots=_config['task']['n_shots'],
+        n_queries=_config['task']['n_queries'],
+        evaluation_manifest=evaluation_manifest,
+        episode_seed=_config['seed'],
+    )
 
     if len(dataset) == 0:
-        raise RuntimeError("No validation queries available after excluding fixed support samples.")
+        raise RuntimeError(f"Dataset created from manifest '{evaluation_manifest}' is empty.")
 
     num_workers = int(validation_cfg.get('num_workers', 0))
     pin_memory = bool(validation_cfg.get('pin_memory', device.type == 'cuda'))
@@ -412,9 +371,7 @@ def main(_run, _config, _log):
 
     report_payload = {
         "snapshot_path": snapshot_path,
-        "support_manifest": support_manifest,
-        "episode_manifest": episode_manifest,
-        "fixed_support": dataset.fixed_support,
+        "evaluation_manifest": evaluation_manifest,
         "n_shots": _config['task']['n_shots'],
         "n_queries": _config['task']['n_queries'],
         "aggregate": aggregate_metrics,

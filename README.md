@@ -1,10 +1,12 @@
 # DINOv2 Few-Shot Disaster Segmentation
 
-This repository now focuses on adapting the ALPNet + DINOv2 few-shot pipeline to the **Exp_Disaster_Few-Shot** remote-sensing benchmark. The goal is to meta-train on diverse land-cover categories and evaluate 5-shot transfer on disaster-response segmentation tasks.
+This repository adapts a DINOv2-based few-shot learning pipeline for a remote-sensing disaster segmentation task. The model meta-trains on diverse land-cover categories from the **Exp_Disaster_Few-Shot** dataset and evaluates 5-shot transfer performance on disaster scenarios.
+
+The codebase uses PyTorch for deep learning and Sacred for experiment management.
 
 ## Dataset Layout
 
-Place the dataset next to the repo so it can be reached via the relative path `../_datasets/Exp_Disaster_Few-Shot/`:
+Place the dataset next to the repository so it can be reached via the relative path `../_datasets/Exp_Disaster_Few-Shot/`:
 
 ```
 ../_datasets/Exp_Disaster_Few-Shot/
@@ -17,57 +19,60 @@ Place the dataset next to the repo so it can be reached via the relative path `.
     └── optional *_png previews
 ```
 
-The code reads GeoTIFF tiles with `rasterio`, normalises RGB channels to `[0,1]`, and remaps the active foreground to `{0,1}` inside each episode.
+The dataloader reads GeoTIFF tiles using `rasterio`, normalizes RGB channels to `[0,1]`, and remaps the active foreground to a binary `{0,1}` mask within each episode.
 
-## Quick Start
+## Workflow
 
-The project is run via `training.py` and `validation.py` scripts using [Sacred](https://sacred.readthedocs.io/).
+The project workflow is split into three main stages: training, evaluation manifest generation, and validation/prediction.
 
-**1. Train the model:**
+**1. Train the Model**
+
+The training script uses a robust **dynamic episode sampling** strategy. At each step, it creates a new few-shot task by randomly sampling images from the entire training set, ensuring the model learns a generalizable segmentation capability.
+
 ```bash
+# Start training with default parameters
 python3 training.py
 ```
+
 You can override configuration parameters from the command line. For example:
 ```bash
 python3 training.py with task.n_shots=3 optim.lr=1e-4
 ```
 
-**2. Evaluate the model:**
+**2. Create Evaluation Manifest**
+
+For **reproducible and standardized evaluation**, you must first generate a manifest file. This script groups the `valset` by geographical region and creates deterministic support/query splits for each region.
+
 ```bash
-python3 validation.py with validation.val_snapshot_path=<path/to/your/snapshot.pth>
-```
-
-Key runtime options are exposed through Sacred:
-
-- `task.n_shots` / `task.n_queries`: support and query counts per episode (defaults: 5-shot, single query).
-- `which_aug`: augmentation recipe (`disaster_aug` blends flips, rotations, and gamma jitter).
-- `support_txt_file`: optional manifest (text or JSON) listing deterministic support tiles for validation.
-
-For deterministic validation episodes, you can generate a manifest for the `valset`:
-
-```
-python3 tools/build_episode_manifest.py \
+python3 -m tools.create_evaluation_manifest \
     --dataset-root ../_datasets/Exp_Disaster_Few-Shot \
     --split valset \
-    --output data/valset_manifest.json
+    --output data/valset/manifest.json
 ```
-Pass the resulting file through `validation.episode_manifest=<path>`.
 
-## Validation & Visualization
+**3. Evaluate the Model**
 
-- Run end-to-end validation (Dice/IoU/Precision/Recall/F1/OA) and export masks/overlays:
-  ```
-  python3 validation.py with validation.val_snapshot_path=<path/to/snapshot.pth>
-  ```
-  The script auto-loads `config.json` from the snapshot run folder (override via `validation.config_json=<path/to/config.json>`) so backbone/LoRA settings match training. Artifacts land in the Sacred run directory under `disaster_preds/`, along with a `metrics_report.json` summary.
+Run end-to-end validation using the manifest created in the previous step. The script calculates key metrics (Dice/IoU/etc.), saves prediction masks, and generates a final `metrics_report.json`.
 
-- Produce offline visualisations from a checkpoint without spawning a Sacred run:
-  ```
-  python3 predict.py \
-      --weights runs/disaster_fewshot_run_EXP_DISASTER_FEWSHOT_5shot/3/snapshots/25000.pth \
-      --output-dir ./runs/predict/step_25000
-  ```
-  Additional knobs include `--support-manifest`, `--no-save-overlay`, `--overlay-alpha`, and `--dataset-root`.
+```bash
+python3 validation.py with \
+    validation.val_snapshot_path=path/to/your/snapshot.pth \
+    validation.evaluation_manifest=data/valset/manifest.json
+```
+
+The script automatically loads the corresponding `config.json` from the snapshot's run folder to ensure model settings match. Artifacts are saved to the Sacred run directory under `disaster_preds/`.
+
+
+## Offline Prediction
+
+To produce visualizations from a checkpoint without spawning a new Sacred run, use the `predict.py` script. It also requires the evaluation manifest.
+
+```bash
+python3 predict.py \
+    --weights path/to/your/snapshot.pth \
+    --evaluation-manifest data/valset/manifest.json \
+    --output-dir runs/predict/my_prediction
+```
 
 ## Citation
 
@@ -82,3 +87,4 @@ If this adaptation helps your research, please cite the original DINOv2 few-shot
       archivePrefix={arXiv},
       primaryClass={cs.CV}
 }
+```
